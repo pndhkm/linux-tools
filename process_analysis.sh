@@ -12,29 +12,24 @@ print_detailed_info() {
     echo ">> Uptime    : $(ps -p $pid -o time= 2>/dev/null || echo 'N/A')"
     echo ">> Command   : $(ps -p $pid -o comm= 2>/dev/null || echo 'N/A')"
     echo ">> Start Time: $(ps -p $pid -o lstart= 2>/dev/null || echo 'N/A')"
-    
-    # Current working directory
+
     cwd=$(readlink /proc/$pid/cwd 2>/dev/null || echo 'N/A')
     echo ">> CWD       : $cwd"
-    
-    # Full command line
+
     cmdline=$(tr '\0' ' ' < /proc/$pid/cmdline 2>/dev/null || echo 'N/A')
     echo ">> Cmdline   : $cmdline"
-    
-    # Threads count
+
     threads=$(grep Threads /proc/$pid/status 2>/dev/null | awk '{print $2}')
     [ -z "$threads" ] && threads="N/A"
     echo ">> Threads   : $threads"
-    
-    # Open file descriptors count
+
     if [ -d "/proc/$pid/fd" ]; then
       open_files=$(ls /proc/$pid/fd 2>/dev/null | wc -l)
     else
       open_files="N/A"
     fi
     echo ">> Open Files: $open_files"
-    
-    # Children process count
+
     children=$(ps -o pid --ppid $pid --no-headers 2>/dev/null | wc -l)
     echo ">> Children  : $children"
   else
@@ -55,16 +50,16 @@ while [[ $# -gt 0 ]]; do
       MODE="$1"
       shift
       ;;
-    -n)
+    -n|--number)
       TOP_N="$2"
       shift 2
       ;;
-    --user)
+    -u|--user)
       USER_FILTER="$2"
       shift 2
       ;;
     *)
-      echo "Usage: $0 [cpu|memory] [-n number_of_processes] [--user username]"
+      echo "Usage: $0 [cpu|memory] [-n N|--number N] [-u user|--user user]"
       exit 1
       ;;
   esac
