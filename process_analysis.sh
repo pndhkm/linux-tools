@@ -46,6 +46,7 @@ print_detailed_info() {
 # Default values
 MODE="all"
 TOP_N=5
+USER_FILTER=""
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -58,8 +59,12 @@ while [[ $# -gt 0 ]]; do
       TOP_N="$2"
       shift 2
       ;;
+    --user)
+      USER_FILTER="$2"
+      shift 2
+      ;;
     *)
-      echo "Usage: $0 [cpu|memory] [-n number_of_processes]"
+      echo "Usage: $0 [cpu|memory] [-n number_of_processes] [--user username]"
       exit 1
       ;;
   esac
@@ -68,11 +73,19 @@ done
 # CPU analysis
 if [[ "$MODE" == "cpu" || "$MODE" == "all" ]]; then
   echo "========== Top $TOP_N processes by CPU usage =========="
-  ps -eo pid,user,ppid,%cpu,%mem,time,comm --sort=-%cpu | head -n $((TOP_N + 1))
+  if [[ -n "$USER_FILTER" ]]; then
+    ps -u "$USER_FILTER" -o pid,user,ppid,%cpu,%mem,time,comm --sort=-%cpu | head -n $TOP_N
+  else
+    ps -eo pid,user,ppid,%cpu,%mem,time,comm --sort=-%cpu | head -n $((TOP_N + 1))
+  fi
 
   echo ""
   echo "========== Detailed info for Top $TOP_N CPU-consuming processes =========="
-  cpu_pids=$(ps -eo pid,%cpu --sort=-%cpu | awk 'NR>1 {print $1}' | head -n $TOP_N)
+  if [[ -n "$USER_FILTER" ]]; then
+    cpu_pids=$(ps -u "$USER_FILTER" -o pid,%cpu --sort=-%cpu | awk 'NR>1 {print $1}' | head -n $TOP_N)
+  else
+    cpu_pids=$(ps -eo pid,%cpu --sort=-%cpu | awk 'NR>1 {print $1}' | head -n $TOP_N)
+  fi
   for pid in $cpu_pids; do
     print_detailed_info $pid
   done
@@ -81,11 +94,19 @@ fi
 # Memory analysis
 if [[ "$MODE" == "memory" || "$MODE" == "all" ]]; then
   echo "========== Top $TOP_N processes by Memory usage =========="
-  ps -eo pid,user,ppid,%cpu,%mem,time,comm --sort=-%mem | head -n $((TOP_N + 1))
+  if [[ -n "$USER_FILTER" ]]; then
+    ps -u "$USER_FILTER" -o pid,user,ppid,%cpu,%mem,time,comm --sort=-%mem | head -n $TOP_N
+  else
+    ps -eo pid,user,ppid,%cpu,%mem,time,comm --sort=-%mem | head -n $((TOP_N + 1))
+  fi
 
   echo ""
   echo "========== Detailed info for Top $TOP_N Memory-consuming processes =========="
-  mem_pids=$(ps -eo pid,%mem --sort=-%mem | awk 'NR>1 {print $1}' | head -n $TOP_N)
+  if [[ -n "$USER_FILTER" ]]; then
+    mem_pids=$(ps -u "$USER_FILTER" -o pid,%mem --sort=-%mem | awk 'NR>1 {print $1}' | head -n $TOP_N)
+  else
+    mem_pids=$(ps -eo pid,%mem --sort=-%mem | awk 'NR>1 {print $1}' | head -n $TOP_N)
+  fi
   for pid in $mem_pids; do
     print_detailed_info $pid
   done
