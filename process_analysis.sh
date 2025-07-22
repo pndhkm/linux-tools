@@ -13,16 +13,20 @@ print_detailed_info() {
     echo ">> Command   : $(ps -p $pid -o comm= 2>/dev/null || echo 'N/A')"
     echo ">> Start Time: $(ps -p $pid -o lstart= 2>/dev/null || echo 'N/A')"
 
+    # Current working directory
     cwd=$(readlink /proc/$pid/cwd 2>/dev/null || echo 'N/A')
     echo ">> CWD       : $cwd"
 
+    # Full command line
     cmdline=$(tr '\0' ' ' < /proc/$pid/cmdline 2>/dev/null || echo 'N/A')
     echo ">> Cmdline   : $cmdline"
 
+    # Threads count
     threads=$(grep Threads /proc/$pid/status 2>/dev/null | awk '{print $2}')
     [ -z "$threads" ] && threads="N/A"
     echo ">> Threads   : $threads"
 
+    # Open file descriptors count
     if [ -d "/proc/$pid/fd" ]; then
       open_files=$(ls /proc/$pid/fd 2>/dev/null | wc -l)
     else
@@ -30,6 +34,7 @@ print_detailed_info() {
     fi
     echo ">> Open Files: $open_files"
 
+    # Children process count
     children=$(ps -o pid --ppid $pid --no-headers 2>/dev/null | wc -l)
     echo ">> Children  : $children"
   else
@@ -59,7 +64,7 @@ while [[ $# -gt 0 ]]; do
       shift 2
       ;;
     *)
-      echo "Usage: $0 [cpu|memory] [-n N|--number N] [-u user|--user user]"
+      echo "Usage: $0 [cpu|memory] [-n|--number N] [-u|--user USERNAME]"
       exit 1
       ;;
   esac
@@ -82,7 +87,7 @@ if [[ "$MODE" == "cpu" || "$MODE" == "all" ]]; then
     cpu_pids=$(ps -eo pid,%cpu --sort=-%cpu | awk 'NR>1 {print $1}' | head -n $TOP_N)
   fi
   for pid in $cpu_pids; do
-    print_detailed_info $pid
+    print_detailed_info "$pid"
   done
 fi
 
@@ -103,6 +108,6 @@ if [[ "$MODE" == "memory" || "$MODE" == "all" ]]; then
     mem_pids=$(ps -eo pid,%mem --sort=-%mem | awk 'NR>1 {print $1}' | head -n $TOP_N)
   fi
   for pid in $mem_pids; do
-    print_detailed_info $pid
+    print_detailed_info "$pid"
   done
 fi
