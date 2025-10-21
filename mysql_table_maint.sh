@@ -1,5 +1,6 @@
 #!/bin/bash
-# Usage: ./mysql_table_tool.sh dbname/tablename
+# mysql_table_maint.sh
+# Usage: ./mysql_table_maint.sh dbname/tablename
 
 LOG_FILE="/var/log/mysql_table_maint.log"
 
@@ -16,25 +17,62 @@ if [ -z "$DB" ] || [ -z "$TABLE" ]; then
     exit 1
 fi
 
+# --- Utility Checks ---
+
+db_exists() {
+    mysql -u root -Nse "SHOW DATABASES LIKE '$DB';" | grep -qw "$DB"
+}
+
+table_exists() {
+    mysql -u root -Nse "SHOW TABLES FROM \`$DB\` LIKE '$TABLE';" | grep -qw "$TABLE"
+}
+
 # --- Functions ---
 
 check_table() {
+    if ! db_exists; then
+        echo "Error: Database '$DB' does not exist."
+        return
+    fi
+    if ! table_exists; then
+        echo "Error: Table '$DB.$TABLE' does not exist."
+        return
+    fi
+
     echo "Checking $DB.$TABLE ..."
     mysql -u root -e "CHECK TABLE \`$TABLE\` EXTENDED;" "$DB" 2>&1 | tee /tmp/mysql_check_tmp.log
 
     echo ""
     echo "Unique log messages:"
-    grep -Ei "error|warning|corrupt|crash" /tmp/mysql_check_tmp.log | sort | uniq
+    grep -Ei "error|warning|corrupt|crash" /tmp/mysql_check_tmp.log | sort | uniq || echo "No errors found."
     echo ""
     rm -f /tmp/mysql_check_tmp.log
 }
 
 repair_table() {
+    if ! db_exists; then
+        echo "Error: Database '$DB' does not exist."
+        return
+    fi
+    if ! table_exists; then
+        echo "Error: Table '$DB.$TABLE' does not exist."
+        return
+    fi
+
     echo "Repairing $DB.$TABLE ..."
     mysql -u root -e "REPAIR TABLE \`$TABLE\`;" "$DB"
 }
 
 convert_innodb() {
+    if ! db_exists; then
+        echo "Error: Database '$DB' does not exist."
+        return
+    fi
+    if ! table_exists; then
+        echo "Error: Table '$DB.$TABLE' does not exist."
+        return
+    fi
+
     ENGINE=$(mysql -u root -Nse "SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA='$DB' AND TABLE_NAME='$TABLE';")
 
     if [ "$ENGINE" == "InnoDB" ]; then
