@@ -3,7 +3,6 @@
 # Usage: ./mysql_table_maint.sh dbname/tablename
 
 LOG_FILE="/var/log/mysql_table_maint.log"
-TMP_LOG="/tmp/mysql_table_check_tmp.log"
 
 if [ -z "$1" ]; then
     echo "Usage: $0 dbname/tablename"
@@ -21,124 +20,147 @@ fi
 # --- Utility Checks ---
 
 db_exists() {
-    mysql -u root -Nse "SHOW DATABASES LIKE '$DB';" | grep -qw "$DB"
+    local result
+    result=$(mysql -u root -Nse "SHOW DATABASES LIKE '$DB';" 2>/dev/null)
+    [ "$result" == "$DB" ]
 }
 
 table_exists() {
-    mysql -u root -Nse "SHOW TABLES FROM \`$DB\` LIKE '$TABLE';" | grep -qw "$TABLE"
+    local result
+    result=$(mysql -u root -Nse "SHOW TABLES FROM \`$DB\` LIKE '$TABLE';" 2>/dev/null)
+    [ "$result" == "$TABLE" ]
+}
+
+log_event() {
+    local message="$1"
+    local ts
+    ts=$(date "+%Y-%m-%d %H:%M:%S")
+    echo "[$ts] $DB/$TABLE $message" >> "$LOG_FILE"
 }
 
 # --- Functions ---
 
 check_table() {
-    local ts msg
-    ts="[$(date '+%Y-%m-%d %H:%M:%S')]"
-
     if ! db_exists; then
-        msg="$ts Error: Database '$DB' does not exist."
-        echo "$msg" | tee -a "$LOG_FILE"
-        return
+        echo "Error: Database '$DB' does not exist."
+        log_event "Error: database not found"
+        return 1
     fi
-
     if ! table_exists; then
-        msg="$ts Error: Table '$DB.$TABLE' does not exist."
-        echo "$msg" | tee -a "$LOG_FILE"
-        return
+        echo "Error: Table '$DB.$TABLE' does not exist."
+        log_event "Error: table not found"
+        return 1
     fi
 
-    echo "$ts Checking table: $DB.$TABLE ..." | tee -a "$LOG_FILE"
+    echo "Checking $DB.$TABLE ..."
+    mysql -u root -Nse "CHECK TABLE \`$TABLE\` EXTENDED;" "$DB" 2>/dev/null > /tmp/mysql_check_tmp.log
+    if [ $? -ne 0 ]; then
+        echo "MySQL check command failed (connection or permission error)."
+        log_event "MySQL check command failed"
+        rm -f /tmp/mysql_check_tmp.log
+        return 1
+    fi
 
-    mysql -u root -e "CHECK TABLE \`$TABLE\` EXTENDED;" "$DB" 2>&1 > "$TMP_LOG"
+    echo ""
+    echo "Result:"
+    awk -F'\t' '{printf "  %-10s : %s\n", $3, $4}' /tmp/mysql_check_tmp.log
 
-    local summary
-    summary=$(awk 'NR>1 {printf "%s | %s | %s | %s", $1, $2, $3, $4}' "$TMP_LOG")
+    local msg
+    msg=$(awk -F'\t' '{print $4}' /tmp/mysql_check_tmp.log | grep -Evi 'Table|Op|Msg' | tail -n1)
 
-    if grep -Eiq "error|warning|corrupt|crash" "$TMP_LOG"; then
-        msg="$ts Result: ISSUE DETECTED | $summary"
+    if grep -Eiq "error|warning|corrupt|crash" /tmp/mysql_check_tmp.log; then
+        echo ""
+        echo "Detected issues:"
+        grep -Ei "error|warning|corrupt|crash" /tmp/mysql_check_tmp.log | sort | uniq | sed 's/^/  - /'
+        log_event "$msg"
     else
-        msg="$ts Result: OK | $summary"
+        echo ""
+        echo "Status: OK (no errors found)"
+        log_event "Table OK"
     fi
 
-    echo "$msg" | tee -a "$LOG_FILE"
-    rm -f "$TMP_LOG"
+    rm -f /tmp/mysql_check_tmp.log
+    return 0
 }
 
 repair_table() {
-    local ts msg
-    ts="[$(date '+%Y-%m-%d %H:%M:%S')]"
-
     if ! db_exists; then
-        msg="$ts Error: Database '$DB' does not exist."
-        echo "$msg" | tee -a "$LOG_FILE"
-        return
+        echo "Error: Database '$DB' does not exist."
+        log_event "Error: database not found"
+        return 1
     fi
-
     if ! table_exists; then
-        msg="$ts Error: Table '$DB.$TABLE' does not exist."
-        echo "$msg" | tee -a "$LOG_FILE"
-        return
+        echo "Error: Table '$DB.$TABLE' does not exist."
+        log_event "Error: table not found"
+        return 1
     fi
 
-    echo "$ts Repairing table: $DB.$TABLE ..." | tee -a "$LOG_FILE"
-
-    mysql -u root -e "REPAIR TABLE \`$TABLE\`;" "$DB" 2>&1 > "$TMP_LOG"
-
-    local summary
-    summary=$(awk 'NR>1 {printf "%s | %s | %s | %s", $1, $2, $3, $4}' "$TMP_LOG")
-
-    if grep -Eiq "error|warning|corrupt|crash" "$TMP_LOG"; then
-        msg="$ts Result: REPAIR ISSUE | $summary"
-    else
-        msg="$ts Result: REPAIR OK | $summary"
+    echo "Repairing $DB.$TABLE ..."
+    mysql -u root -Nse "REPAIR TABLE \`$TABLE\`;" "$DB" 2>/dev/null > /tmp/mysql_repair_tmp.log
+    if [ $? -ne 0 ]; then
+        echo "Repair command failed (connection or permission error)."
+        log_event "MySQL repair command failed"
+        rm -f /tmp/mysql_repair_tmp.log
+        return 1
     fi
 
-    echo "$msg" | tee -a "$LOG_FILE"
-    rm -f "$TMP_LOG"
+    echo ""
+    echo "Result:"
+    awk -F'\t' '{printf "  %-10s : %s\n", $3, $4}' /tmp/mysql_repair_tmp.log
+
+    local msg
+    msg=$(awk -F'\t' '{print $4}' /tmp/mysql_repair_tmp.log | grep -Evi 'Table|Op|Msg' | tail -n1)
+    [ -z "$msg" ] && msg="repair status: skipped"
+    log_event "$msg"
+
+    rm -f /tmp/mysql_repair_tmp.log
+    return 0
 }
 
 convert_innodb() {
-    local ts msg
-    ts="[$(date '+%Y-%m-%d %H:%M:%S')]"
-
     if ! db_exists; then
-        msg="$ts Error: Database '$DB' does not exist."
-        echo "$msg" | tee -a "$LOG_FILE"
-        return
+        echo "Error: Database '$DB' does not exist."
+        log_event "Error: database not found"
+        return 1
     fi
-
     if ! table_exists; then
-        msg="$ts Error: Table '$DB.$TABLE' does not exist."
-        echo "$msg" | tee -a "$LOG_FILE"
-        return
+        echo "Error: Table '$DB.$TABLE' does not exist."
+        log_event "Error: table not found"
+        return 1
     fi
 
-    ENGINE=$(mysql -u root -Nse "SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA='$DB' AND TABLE_NAME='$TABLE';")
+    ENGINE=$(mysql -u root -Nse "SELECT ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA='$DB' AND TABLE_NAME='$TABLE';" 2>/dev/null)
+    if [ -z "$ENGINE" ]; then
+        echo "Error: Unable to detect engine (check permissions)."
+        log_event "Error: unable to detect engine"
+        return 1
+    fi
 
     if [ "$ENGINE" == "InnoDB" ]; then
-        msg="$ts Info: $DB.$TABLE is already InnoDB. No conversion needed."
-        echo "$msg" | tee -a "$LOG_FILE"
-        return
+        echo "$DB.$TABLE is already InnoDB. No conversion needed."
+        log_event "Already InnoDB"
+        return 0
     fi
 
-    echo "$ts Info: $DB.$TABLE currently using $ENGINE engine." | tee -a "$LOG_FILE"
+    echo "$DB.$TABLE is currently using $ENGINE engine."
     read -rp "Convert to InnoDB? [y/N]: " confirm
     confirm=${confirm:-N}
 
     if [[ "$confirm" =~ ^[Yy]$ ]]; then
-        echo "$ts Converting $DB.$TABLE to InnoDB ..." | tee -a "$LOG_FILE"
-        mysql -u root -e "ALTER TABLE \`$TABLE\` ENGINE=InnoDB;" "$DB" 2>&1 > "$TMP_LOG"
-
-        if grep -Eiq "error|warning" "$TMP_LOG"; then
-            msg="$ts Result: CONVERSION FAILED | $DB.$TABLE"
+        echo "Converting $DB.$TABLE to InnoDB ..."
+        if mysql -u root -e "ALTER TABLE \`$TABLE\` ENGINE=InnoDB;" "$DB" 2>/dev/null; then
+            echo "Conversion completed."
+            log_event "Converted to InnoDB"
         else
-            msg="$ts Result: CONVERSION SUCCESS | $DB.$TABLE"
+            echo "Conversion failed (check MySQL error)."
+            log_event "Conversion failed"
+            return 1
         fi
-        echo "$msg" | tee -a "$LOG_FILE"
     else
-        echo "$ts Conversion canceled." | tee -a "$LOG_FILE"
+        echo "Conversion canceled."
+        log_event "Conversion canceled"
     fi
-
-    rm -f "$TMP_LOG"
+    return 0
 }
 
 # --- Main Loop ---
