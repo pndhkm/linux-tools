@@ -33,7 +33,7 @@ case "$OS" in
         apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
         ;;
     centos|rhel|rocky|almalinux)
-        yum install -y yum-utils ca-certificates curl
+        yum install -y yum-utils ca-certificates curl kernel-modules-extra
         yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo
         yum install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
         ;;
